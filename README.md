@@ -1,4 +1,4 @@
-# Autonomous B2B Outreach Pipeline
+# Autonomous B2B Outreach Pipeline 
 
 ## 📌 Overview
 The **Autonomous B2B Outreach Pipeline** is an enterprise-grade, self-routing Python daemon designed to automate the lead generation and outreach process. Instead of manual data entry and repetitive email tasks, this system autonomously discovers potential B2B clients, extracts necessary contact structures, and delivers personalized payloads. It features built-in compliance protocols and a remote Telemetry Command Center for real-time monitoring.
