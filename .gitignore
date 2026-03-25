@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+
+# Environment variables & Secrets
+.env
+
+# Dynamic Pipeline State & Logs (CRITICAL)
+pipeline_state.json
+failed_leads.csv
+contacted_domains.txt
+premium_leads_*.csv
+*.log
