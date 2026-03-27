@@ -21,6 +21,8 @@ class OutreachMailer:
         msg = MIMEMultipart()
         msg['From'] = self.sender_email
         msg['To'] = target_email
+        
+        msg['List-Unsubscribe'] = f"<mailto:{self.sender_email}?subject=unsubscribe>"
 
         if region == "russia":
             subjects = [

@@ -1,5 +1,5 @@
 """
-B2B Autonomous Pipeline Coordinator with Weighted Routing, Silent Logs, DaaS Engine & Dynamic Limits
+B2B Autonomous Pipeline Coordinator with Smart Volume Scaling, Silent Logs & DaaS Engine
 """
 import logging
 import time
@@ -10,8 +10,8 @@ import random
 from datetime import datetime
 from typing import Dict, Any, List
 import requests
-
 from dotenv import load_dotenv
+
 from data_extractor import DataExtractor
 from outreach_mailer import OutreachMailer
 
@@ -30,6 +30,7 @@ class AgentCoordinator:
         self.google_api_key = api_keys.get("google_places", "")
         self.tg_token = api_keys.get("telegram_token", "")
         self.tg_chat_id = api_keys.get("telegram_chat_id", "")
+        self.admin_test_email = "berk.kurtcu@hotmail.com" 
         
         self.state_file = "pipeline_state.json"
         self.failed_leads_file = "failed_leads.csv"
@@ -76,7 +77,7 @@ class AgentCoordinator:
         
         self._initialize_state()
         self._clear_pending_updates()
-        self._send_telegram_message("🤖 <b>Enterprise Autonomous System INITIALIZED.</b>\nDynamic Limits & Template Rotation Active.\nType /help for commands.")
+        self._send_telegram_message("🤖 <b>Enterprise Autonomous System INITIALIZED.</b>\nSmart Warm-up & Live Testing Active.\nType /help for commands.")
 
     def _clear_pending_updates(self) -> None:
         if not self.tg_token: return
@@ -163,24 +164,26 @@ class AgentCoordinator:
             self._save_state({
                 "date": datetime.now().strftime("%Y-%m-%d"), 
                 "sent_count": 0,
-                "daily_target": random.randint(42, 55), 
+                "daily_target": random.randint(5, 8), 
                 "region": self.current_region,
                 "query": self.current_query,
                 "location": self.current_location,
                 "total_sent_lifetime": 0,
                 "location_stats": {},
                 "queued_region": "",
-                "locked_region": ""
+                "locked_region": "",
+                "last_spam_check": 0
             })
         else:
             state = self._read_state()
             self.current_region = state.get("region", "global")
             self.current_query = state.get("query")
             self.current_location = state.get("location")
-            
+            if "last_spam_check" not in state:
+                state["last_spam_check"] = 0
             if "daily_target" not in state:
-                state["daily_target"] = random.randint(42, 55)
-            
+                state["daily_target"] = random.randint(5, 8)
+                
             if not self.current_query or not self.current_location:
                 self._select_autonomous_target()
                 state = self._read_state() 
@@ -194,7 +197,7 @@ class AgentCoordinator:
             with open(self.state_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
-            return {"date": datetime.now().strftime("%Y-%m-%d"), "sent_count": 0, "daily_target": 45}
+            return {"date": datetime.now().strftime("%Y-%m-%d"), "sent_count": 0, "daily_target": 5, "last_spam_check": 0}
 
     def _save_state(self, state: Dict[str, Any]) -> None:
         with open(self.state_file, 'w', encoding='utf-8') as f:
@@ -209,17 +212,52 @@ class AgentCoordinator:
                 self._select_autonomous_target()
                 logging.info(f"New Day Cycle Initiated: Target locked on {self.current_query} in {self.current_location}")
             
-            state = self._read_state() 
+            total_lifetime = state.get("total_sent_lifetime", 0)
+            if total_lifetime < 50:
+                daily_limit = random.randint(5, 8)    
+            elif total_lifetime < 150:
+                daily_limit = random.randint(12, 18) 
+            elif total_lifetime < 400:
+                daily_limit = random.randint(25, 35)  
+            else:
+                daily_limit = random.randint(45, 55)  
+            
             state["date"] = current_date
             state["sent_count"] = 0
-            state["daily_target"] = random.randint(42, 55) # Her yeni günde zarı yeniden at
+            state["daily_target"] = daily_limit 
             state["region"] = self.current_region
             state["query"] = self.current_query
             state["location"] = self.current_location
             self._save_state(state)
+            logging.info("Volume Scaling Set: %d emails for today.", daily_limit)
             
-        limit = state.get("daily_target", 45)
-        return state.get("sent_count", 0) < limit
+        limit = state.get("daily_target", 5)
+        sent = state.get("sent_count", 0)
+        total_lifetime = state.get("total_sent_lifetime", 0)
+        last_check = state.get("last_spam_check", 0)
+        
+        if total_lifetime >= last_check + 150:
+            self._trigger_spam_radar(total_lifetime)
+            state = self._read_state()
+            state["last_spam_check"] = total_lifetime
+            self._save_state(state)
+            
+        return sent < limit
+
+    def _trigger_spam_radar(self, lifetime_count: int) -> None:
+        test_lead = [{
+            "email": self.admin_test_email,
+            "company_name": "Tarsus HQ (Flare)",
+            "niche": "tech",
+            "region": "global"
+        }]
+        self.mailer.send_campaign(test_lead)
+        self._send_telegram_message(
+            "🚀 <b>İŞARET FİŞEĞİ ATEŞLENDİ!</b>\n\n"
+            f"Kaptan, toplam <b>{lifetime_count}</b> mail barajını geçtim. <code>{self.admin_test_email}</code> adresine test maili attım.\n\n"
+            "🟢 <b>Ben işime otonom olarak DEVAM EDİYORUM.</b>\n"
+            "🔴 Eğer maili SPAM kutusunda görürsen bana acil <b>/cancel</b> yaz.\n"
+        )
 
     def increment_counter(self) -> None:
         state = self._read_state()
@@ -274,7 +312,24 @@ class AgentCoordinator:
                 self.offset = result["update_id"] + 1
                 message = result.get("message", {}).get("text", "")
                 
-                if message == "/help":
+                if message.startswith("/test"):
+                    parts = message.split()
+                    if len(parts) >= 2:
+                        test_email = parts[1]
+                        test_lead = [{
+                            "email": test_email,
+                            "company_name": "Mail-Tester HQ",
+                            "niche": "tech",
+                            "region": "global"
+                        }]
+                        if self.mailer.send_campaign(test_lead):
+                            self._send_telegram_message(f"✅ <b>Test Fırlatıldı!</b>\nGerçek şablon <code>{test_email}</code> adresine gönderildi.")
+                        else:
+                            self._send_telegram_message("❌ <b>Hata!</b> Test maili gönderilemedi. SMTP ayarlarını kontrol et.")
+                    else:
+                        self._send_telegram_message("ℹ️ <b>Kullanım:</b> /test ornek@mail-tester.com")
+
+                elif message == "/help":
                     self._send_telegram_message(
                         "🛠 <b>TELEMETRY COMMAND CENTER</b>\n\n"
                         "<b>/status</b> - Show daily metrics\n"
@@ -284,6 +339,7 @@ class AgentCoordinator:
                         "<b>/now [region]</b> - INSTANT switch\n"
                         "<b>/always [region]</b> - LOCK to region\n"
                         "<b>/next [region]</b> - Queue next cycle\n"
+                        "<b>/test [email]</b> - Send spam test mail\n"
                         "<b>/cancel</b> - Resume normal routing\n"
                         "<b>/help</b> - Show list"
                     )
@@ -292,7 +348,7 @@ class AgentCoordinator:
                     mode = "Manual Override" if self.is_override_active else "Autonomous Routing"
                     queued = state.get("queued_region", "")
                     locked = state.get("locked_region", "")
-                    daily_target = state.get("daily_target", 45)
+                    daily_target = state.get("daily_target", 5)
                     
                     queue_text = ""
                     if locked: queue_text = f"\nLocked Region: 🔒 {locked.upper()}"
@@ -338,7 +394,7 @@ class AgentCoordinator:
                         else:
                             self._send_telegram_message(f"📁 <b>No leads yet for {req_region.upper()}.</b>")
                     else:
-                        self._send_telegram_message("ℹ️ <b>Usage:</b> /leads [region]\nExample: /leads russia\nAvailable regions: global, russia, turkey")
+                        self._send_telegram_message("ℹ️ <b>Usage:</b> /leads [region]\nExample: /leads russia")
 
                 elif message.startswith("/always"):
                     parts = message.split()
@@ -447,6 +503,7 @@ class AgentCoordinator:
             try:
                 self.abort_current_cycle = False 
                 self.poll_telegram_commands()
+
                 if not self.verify_compliance_limits():
                     self._active_sleep(3600)
                     continue
@@ -507,9 +564,11 @@ class AgentCoordinator:
 
 if __name__ == "__main__":
     load_dotenv()
+    
+    print("🚀 Sistem Başlatılıyor... .env dosyası kontrol ediliyor...")
 
     smtp_credentials = {
-        "server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "server": os.getenv("SMTP_SERVER", "smtp.hostinger.com"),
         "port": os.getenv("SMTP_PORT", "587"),
         "email": os.getenv("SMTP_EMAIL", ""),
         "password": os.getenv("SMTP_PASSWORD", "")
